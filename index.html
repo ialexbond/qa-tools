@@ -1905,6 +1905,17 @@
             .kb-word { padding: 3px 1px; }
             button.rx-sheet-row { min-height: 40px; }
         }
+        /* Measured: the validator's six bottom buttons need ~757 px in one row (≈1013 px viewport with the sidebar,
+           ≈793 px without). Below that the check button takes its own line and the other five share the next one. */
+        @media (min-width: 641px) and (max-width: 1013px) {
+            #tab-validate .buttons .btn-primary { flex-basis: 100%; justify-content: center; }
+            #tab-validate .buttons .btn-secondary { flex: 1 1 auto; justify-content: center; }
+        }
+        /* Five secondary buttons fit one line from ~660 px (680 leaves a margin for fonts); narrower, the escape pair
+           shares a line in halves and format / minify / clear share the next one. */
+        @media (max-width: 680px) {
+            #tab-validate .buttons :is([data-action="Validator.unescape"], [data-action="Validator.escape"]) { flex: 1 1 calc(50% - 4px); }
+        }
         /* Phones: the main action fills the first line of the bottom bar (two main actions share it in halves);
            the other buttons and options share the next lines evenly, so no line ends in a gap. A two-column diff
            is too narrow there: each line pair becomes one column — an unchanged line once, a removed line only
@@ -2124,6 +2135,7 @@
                     <div class="panel-actions">
                         <button class="copy-btn" data-tip="Копировать JSON" aria-label="Копировать JSON" data-action="Validator.copyInput"><svg class="copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><svg class="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></button>
                         <button class="panel-icon-btn" data-action="Validator.unescape" data-tip="Убрать экранирование" aria-label="Убрать экранирование"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 4l8 16M16 5v4M20 5v4"/></svg></button>
+                        <button class="panel-icon-btn" data-action="Validator.escape" data-tip="Экранировать" aria-label="Экранировать"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 4l7 16M13 5v4M17 5v4M19 15v6M16 18h6"/></svg></button>
                         <button class="panel-icon-btn" data-action="Validator.format" data-tip="Форматировать" aria-label="Форматировать"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h6"/></svg></button>
                         <button class="panel-icon-btn" data-action="Validator.minify" data-tip="Минифицировать" aria-label="Минифицировать"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h16"/></svg></button>
                         <button class="panel-icon-btn" data-action="Validator.clear" data-tip="Очистить" aria-label="Очистить"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
@@ -2151,6 +2163,7 @@
         <div class="buttons">
             <button class="btn-primary" data-action="Validator.validate">Проверить JSON</button>
             <button class="btn-secondary" data-action="Validator.unescape">Убрать экранирование</button>
+            <button class="btn-secondary" data-action="Validator.escape">Экранировать</button>
             <button class="btn-secondary" data-action="Validator.format">Форматировать</button>
             <button class="btn-secondary" data-action="Validator.minify">Минифицировать</button>
             <button class="btn-secondary" data-action="Validator.clear">Очистить</button>
@@ -6583,6 +6596,23 @@
             vResult.prepend(noteBlock('ℹ ' + describeUnescape(r), r.ok ? 'var(--info-text)' : 'var(--warn)'));
         }
 
+        // One layer of backslash escaping, the inverse of unescape. Any text, not only valid JSON:
+        // Postman bodies keep {{variables}} unquoted. Line breaks become \r\n, as in payloads the team receives.
+        const ESCAPES = { '"': '\\"', '\\': '\\\\', '\n': '\\r\\n', '\r\n': '\\r\\n', '\r': '\\r', '\t': '\\t', '\b': '\\b', '\f': '\\f' };
+        function escapeText(input) {
+            return String(input == null ? '' : input).replace(/\r\n|["\\\u0000-\u001f]/g,
+                c => ESCAPES[c] || '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+        }
+
+        function escape(event, dataset) {
+            hideError();
+            const raw = vInput.value.trim();
+            if (!raw) { showError('Вставьте JSON, который нужно экранировать'); return; }
+            vInput.value = escapeText(raw);
+            vInput.dispatchEvent(new Event('input', { bubbles: true }));   // autosave via the root debounced listener
+            vResult.replaceChildren(noteBlock('ℹ Экранирование добавлено\n" → \\"   перенос строки → \\r\\n\nСнять: «Убрать экранирование»','var(--info-text)'));
+        }
+
         function clear(event, dataset) {
             vInput.value = '';
             vResult.innerHTML = '<div class="block-placeholder">Здесь появится результат валидации...</div>';
@@ -6611,7 +6641,7 @@
             if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); validate(e, {}); }
         });
 
-        return { validate, format, minify, unescape, clear, copyInput, copyReport, jumpToError, locateError, captureUndo, findDuplicateKeys, unescapeJson };
+        return { validate, format, minify, unescape, escape, clear, copyInput, copyReport, jumpToError, locateError, captureUndo, findDuplicateKeys, unescapeJson, escapeText };
     })();
 
     // --- DataCore: dependency-free synthetic data and date conversions ---
@@ -15270,6 +15300,7 @@
             format:    Validator.format,
             minify:    Validator.minify,
             unescape:  Validator.unescape,
+            escape:    Validator.escape,
             clear:     Validator.clear,
             copyInput: Validator.copyInput,
             copyReport: Validator.copyReport,
